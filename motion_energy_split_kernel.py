@@ -4,13 +4,16 @@
 # Email: aravind@oxidification.com
 # License: MIT
 
-from time import time
 import cv2
 import numpy as np
 from math import factorial
 from collections import deque
-
 import torch
+
+import sys
+import argparse
+import logging
+from time import time
 
 from gabor import gabor_kernel_separate, gabor_kernel_skimage
 
@@ -45,7 +48,8 @@ class MotionEnergy():
             # To be used for the Karatsuba
             self.conv_x_comb = torch.nn.Conv2d(1, 1, kernel_x.imag.shape[0], bias=False)
             self.conv_x_comb.weight = torch.nn.Parameter(
-                torch.tensor((kernel_x.real + kernel_x.imag).reshape(1, 1, 1, -1), dtype=torch.float32))
+                torch.tensor(
+                    (kernel_x.real + kernel_x.imag).reshape(1, 1, 1, -1), dtype=torch.float32))
 
         def forward(self, incoming, expected_width=None):
             # If native complex was supported by PyTorch
@@ -87,7 +91,7 @@ class MotionEnergy():
             return resp_real, resp_imag
 
 
-    def __init__(self):
+    def __init__(self, disable_video_scaling=False):
 
         # Make kernels
         # NOTE below kernels work fine for 240 x 240 input
@@ -99,7 +103,7 @@ class MotionEnergy():
             (0.3, 135)
         ]
         self.spatial_convs = []
-        print('Initializing spatial kernels')
+        logging.info('Initializing spatial kernels')
         for param in self.spatial_kernel_params:
             freq, orin = param
             kernel_x, kernel_y = gabor_kernel_separate(freq, theta=np.deg2rad(orin))
@@ -111,12 +115,13 @@ class MotionEnergy():
 
             self.spatial_convs.append(self.SplitConv2d(kernel_x, kernel_y))
 
-            print(f'Freq. = {freq} cpp, Orien. = {orin} deg, Kern. size = {full_kernel_from_1d.shape}')
+            logging.info(
+                f'Freq. = {freq} cpp, Orien. = {orin} deg, Kern. size = {full_kernel_from_1d.shape}')
 
 
         # TODO Read parameters from config file
         dt = 1 / 30
-        time_length = 100 / 1000 # ms to s
+        time_length = 90 / 1000 # ms to s
         self.num_frames = int(np.ceil(time_length / dt))
         time_array = np.linspace(0, time_length, self.num_frames+1)[1:]
 
@@ -133,8 +138,8 @@ class MotionEnergy():
             1 / factorial(slow_n) - beta / factorial(slow_n + 2) * (k * time_array)**2)
         fast_t = (k * time_array)**fast_n * np.exp(-k * time_array) * (
             1 / factorial(fast_n) - beta / factorial(fast_n + 2) * (k * time_array)**2)
-        print(f'Num frames = {self.num_frames}')
-        print(f'Slow time kernel = {slow_t}\nFast time kernel = {fast_t}')
+        logging.info(f'Num frames = {self.num_frames}')
+        logging.info(f'Slow time kernel = {slow_t}\nFast time kernel = {fast_t}')
 
         self.slow_t_conv = torch.nn.Conv2d(self.num_frames, 1, (1, 1), bias=False)
         self.slow_t_conv.weight = torch.nn.Parameter(
@@ -149,8 +154,11 @@ class MotionEnergy():
         self.img_grey_stack = deque(maxlen=self.num_frames)
 
         self.motion_energy = None
+
+        self.disable_video_scaling = disable_video_scaling
+
     
-    def img_callback(self, img_in):
+    def img_callback(self, img_in, ensure_contiguous=False):
         time_start = time()
 
         # Center crop, square image and resize to 240 x 240
@@ -165,8 +173,10 @@ class MotionEnergy():
             width_range_last = width_img_in
             height_range_start = (height_img_in - width_img_in) // 2
             height_range_last = height_range_start+width_img_in
-        img_in = img_in[height_range_start:height_range_last, width_range_start:width_range_last, :]
-        img_in = cv2.resize(img_in, (240, 240))
+        img_in = img_in[
+            height_range_start:height_range_last, width_range_start:width_range_last, :]
+        if not self.disable_video_scaling:
+            img_in = cv2.resize(img_in, (240, 240))
 
         img_grey = cv2.cvtColor(img_in, cv2.COLOR_BGR2GRAY)
         height_img, width_img = img_grey.shape
@@ -238,23 +248,100 @@ class MotionEnergy():
             motion_visu_img = cv2.cvtColor(motion_visu_img_hsv, cv2.COLOR_HSV2BGR)
             cv2.imshow('motion_energy', motion_visu_img)
 
-            # Since stuff might not run real-time, flush the image stack
-            # and accumulate self.num_frames contiguous frames
-            self.img_grey_stack.clear()
+            # ensure_contiguous is a hint that stuff does not run real-time.
+            # So flush the image stack and accumulate self.num_frames contiguous frames
+            if ensure_contiguous:
+                self.img_grey_stack.clear()
 
-            print(f'{time() - time_start = }')
+            logging.info(f'Duration per loop = {time() - time_start} s')
 
 
 if __name__ == "__main__":
-    motion_energy_obj = MotionEnergy()
+    # Setup a command-line argument parser
+    parser = argparse.ArgumentParser(
+        description = 'Visualize spatiotemporal energy model on webcam feed or video file',
+        exit_on_error=True
+    )
+    parser.add_argument(
+        '-f', '--file',
+        default=None,
+        type=str,
+        help='video filename as input; if not specified, defaults to a camera device'
+    )
+    parser.add_argument(
+        '-c', '--cam-id',
+        default=0,
+        type=int,
+        help="""camera ID as input; typically 0 is internal webcam, 1 is external camera
+        (default: 0); NOTE ignored if --file is specified"""
+    )
+    parser.add_argument(
+        '-x', '--disable-scale',
+        action='store_true',
+        help='disables video input scaling, else scales input to 240x240'
+    )
+    parser.add_argument(
+        '-e', '--ensure-contiguous',
+        action='store_true',
+        help="""makes sure spatiotemporal volume contains continuously sampled
+        images from the camera input. This is most useful if it is taking too
+        long to produce an iteration of visualization (very choppy appearance).
+        NOTE ineffective if --file is specified"""
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='print extra information on the command line'
+    )
+    args = parser.parse_args()
 
-    # 0 = internal camera, 1 = external
-    # cam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    cam = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    # Setup a logger
+    logging.basicConfig(
+        format = '%(levelname)s: %(message)s',
+        level = logging.INFO if args.verbose else logging.WARN)
 
+    # The main object of this demo
+    motion_energy_obj = MotionEnergy(
+        disable_video_scaling=args.disable_scale)
+
+    if args.disable_scale:
+        logging.warning('Video scaling to 240x240 is disabled. This might lead to slow processing.')
+        if not args.ensure_contiguous:
+            logging.warning('Consider specifying --ensure-contiguous')
+
+    print('Starting motion energy visualization. To exit, press ESC on any visualization window.')
+    # Setup input to motion energy processor
+    if args.file is not None:
+        cap = cv2.VideoCapture(args.file)
+        # Read first frame to see if file/codec exists
+        ret_val, _ = cap.read()
+        
+        if ret_val is False:
+            logging.error(
+                f'{args.file} does not exist or is not a valid video file')
+            sys.exit(1)
+    else:
+        # Typically, 0 = internal camera, 1 = external
+        cap = cv2.VideoCapture(args.cam_id, cv2.CAP_DSHOW)
+
+        ret_val, _ = cap.read()
+        if ret_val is False:
+            logging.error(
+                f'{args.cam_id} is an invalid camera. '
+                'Make sure camera is attached and usable in other programs.')
+            sys.exit(1)
+
+    # The main loop
     while True:
-        ret_val, img = cam.read()
-        motion_energy_obj.img_callback(img)
+        ret_val, img = cap.read()
+
+        if ret_val is False and args.file is not None:
+            # End of video reached
+            break
+
+        motion_energy_obj.img_callback(
+            img, ensure_contiguous=args.ensure_contiguous)
+        
         if cv2.waitKey(1) == 27: 
             break  # esc to quit
     cv2.destroyAllWindows()
