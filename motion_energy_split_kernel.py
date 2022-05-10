@@ -91,7 +91,16 @@ class MotionEnergy():
             return resp_real, resp_imag
 
 
-    def __init__(self, disable_video_scaling=False):
+    def __init__(self, disable_video_scaling=False, accelerate_with_cuda=False):
+
+        # By default, CPU is used
+        self.device_type = torch.device("cpu")
+        if accelerate_with_cuda:
+            if torch.cuda.is_available():
+                self.device_type = torch.device("cuda")
+                logging.info('CUDA will be used to accelerate compute.')
+            else:
+                logging.warning('CUDA not available! Will be using CPU instead.')
 
         # Make kernels
         # NOTE below kernels work fine for 240 x 240 input
@@ -113,7 +122,8 @@ class MotionEnergy():
             full_kernel_from_1d = np.outer(kernel_y, kernel_x)
             assert np.allclose(full_kernel_2d, full_kernel_from_1d)
 
-            self.spatial_convs.append(self.SplitConv2d(kernel_x, kernel_y))
+            self.spatial_convs.append(
+                self.SplitConv2d(kernel_x, kernel_y).to(self.device_type))
 
             logging.info(
                 f'Freq. = {freq} cpp, Orien. = {orin} deg, Kern. size = {full_kernel_from_1d.shape}')
@@ -143,10 +153,12 @@ class MotionEnergy():
 
         self.slow_t_conv = torch.nn.Conv2d(self.num_frames, 1, (1, 1), bias=False)
         self.slow_t_conv.weight = torch.nn.Parameter(
-            torch.tensor(slow_t.reshape(1, -1, 1, 1), dtype=torch.float32))
+            torch.tensor(slow_t.reshape(1, -1, 1, 1),
+            dtype=torch.float32, device=self.device_type))
         self.fast_t_conv = torch.nn.Conv2d(self.num_frames, 1, (1, 1), bias=False)
         self.fast_t_conv.weight = torch.nn.Parameter(
-            torch.tensor(fast_t.reshape(1, -1, 1, 1), dtype=torch.float32))
+            torch.tensor(fast_t.reshape(1, -1, 1, 1),
+            dtype=torch.float32, device=self.device_type))
 
         # FIFO deck to accumulate max. number of frames
         # This will be useful if each loop is faster than incoming
@@ -174,7 +186,8 @@ class MotionEnergy():
             height_range_start = (height_img_in - width_img_in) // 2
             height_range_last = height_range_start+width_img_in
         img_in = img_in[
-            height_range_start:height_range_last, width_range_start:width_range_last, :]
+            height_range_start:height_range_last,
+            width_range_start:width_range_last, :]
         if not self.disable_video_scaling:
             img_in = cv2.resize(img_in, (240, 240))
 
@@ -182,7 +195,8 @@ class MotionEnergy():
         height_img, width_img = img_grey.shape
         
         img_grey_torch = torch.tensor(
-            img_grey.reshape(1, 1, height_img, width_img), dtype=torch.float32)
+            img_grey.reshape(1, 1, height_img, width_img),
+            dtype=torch.float32, device=self.device_type)
         self.img_grey_stack.append(img_grey_torch)
         
         if len(self.img_grey_stack) == self.num_frames:
@@ -199,13 +213,14 @@ class MotionEnergy():
                 for spatial_conv in self.spatial_convs:
                     gabor_resp_even, gabor_resp_odd = spatial_conv(input_images, width_img)
                     # Will stack even, odd, even, odd....
-                    stacked_gabor_resps.extend((gabor_resp_even.squeeze(), gabor_resp_odd.squeeze()))
+                    stacked_gabor_resps.extend(
+                        (gabor_resp_even.squeeze(), gabor_resp_odd.squeeze()))
 
                     # Plain edge response (spatial convolutions)
                     edge_resp += (
                         gabor_resp_even[0] +
                         gabor_resp_odd[0]
-                    ).squeeze().numpy()
+                    ).squeeze().cpu().numpy()
 
                 cv2.imshow('edge_response', edge_resp/len(self.spatial_convs))
                 stacked_gabor_resps = torch.stack(stacked_gabor_resps)
@@ -225,8 +240,11 @@ class MotionEnergy():
                     resp_posdir_1 = -odd_fast +  even_slow
                     resp_posdir_2 =  odd_slow +  even_fast
 
-                    energy_negdir = (resp_negdir_1**2 + resp_negdir_2**2).squeeze().numpy()
-                    energy_posdir = (resp_posdir_1**2 + resp_posdir_2**2).squeeze().numpy()
+                    # NOTE converting to CPU is no-op when device type already CPU
+                    energy_negdir = (
+                        resp_negdir_1**2 + resp_negdir_2**2).squeeze().cpu().numpy()
+                    energy_posdir = (
+                        resp_posdir_1**2 + resp_posdir_2**2).squeeze().cpu().numpy()
                     energy_thisdir = energy_negdir - energy_posdir
 
                     orientation = np.deg2rad(param[1])
@@ -260,7 +278,7 @@ if __name__ == "__main__":
     # Setup a command-line argument parser
     parser = argparse.ArgumentParser(
         description = 'Visualize spatiotemporal energy model on webcam feed or video file',
-        exit_on_error=True
+        # exit_on_error=True, needs Python 3.9
     )
     parser.add_argument(
         '-f', '--file',
@@ -289,6 +307,12 @@ if __name__ == "__main__":
         NOTE ineffective if --file is specified"""
     )
     parser.add_argument(
+        '-a', '--accelerate-with-cuda',
+        action='store_true',
+        help="""tries to accelerate compute with NVIDIA CUDA instead of running on CPU.
+        If your computer does not have a supporting GPU, CPU will be used as a fallback."""
+    )
+    parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='print extra information on the command line'
@@ -302,7 +326,8 @@ if __name__ == "__main__":
 
     # The main object of this demo
     motion_energy_obj = MotionEnergy(
-        disable_video_scaling=args.disable_scale)
+        disable_video_scaling=args.disable_scale,
+        accelerate_with_cuda=args.accelerate_with_cuda)
 
     if args.disable_scale:
         logging.warning('Video scaling to 240x240 is disabled. This might lead to slow processing.')
@@ -321,10 +346,15 @@ if __name__ == "__main__":
                 f'{args.file} does not exist or is not a valid video file')
             sys.exit(1)
     else:
-        # Typically, 0 = internal camera, 1 = external
+        # Try reading with DSHOW (works in most Windows)
         cap = cv2.VideoCapture(args.cam_id, cv2.CAP_DSHOW)
-
         ret_val, _ = cap.read()
+
+        # Else, without DSHOW (works in most Linux/Mac)
+        if ret_val is False:
+            cap = cv2.VideoCapture(args.cam_id)
+            ret_val, _ = cap.read()
+
         if ret_val is False:
             logging.error(
                 f'{args.cam_id} is an invalid camera. '
