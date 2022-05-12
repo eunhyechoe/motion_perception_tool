@@ -19,7 +19,10 @@ This will create a folder `env/` with a virtual environment. Activate this envir
 source env/bin/activate
 
 # For Windows (PowerShell)
-source .\env\bin\Activate.ps1
+.\env\bin\Activate.ps1
+
+# For Windows (CMD)
+.\env\bin\activate.bat
 ```
 
 Once the environment is activated, install the required packages using `pip3`
