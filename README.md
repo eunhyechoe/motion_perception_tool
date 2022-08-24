@@ -1,4 +1,11 @@
-# Vision Science Toolkit for Kindergardeners (tentative title)
+# Motion Perception Tool
+
+An efficient, real-time implementation of Adelson's [spatiotemporal energy model](https://pubmed.ncbi.nlm.nih.gov/3973762/). A fun use case for this tool is to verify motion perception on a number of visual phenomena such as [“Stepping feet” Motion Illusion](https://michaelbach.de/ot/mot-feetLin/index.html), [Pinna-Brelstaff Illusion](https://michaelbach.de/ot/mot-PinnaBrelstaff/index.html), [“Spine drift” illusion](https://michaelbach.de/ot/mot-spineDrift/index.html) etc. This can be done by placing an external webcam in front of a display showing the illusions, and optionally moving the webcam to resemble eye movements.
+
+This code accompanies the paper TODO link.
+```
+TODO: BibTeX citation
+```
 
 ## Install
 
