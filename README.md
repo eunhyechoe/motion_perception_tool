@@ -7,6 +7,8 @@ This code accompanies the paper TODO link.
 TODO: BibTeX citation
 ```
 
+Work done at [Robotics and Biology Laboratory](https://www.robotics.tu-berlin.de/menue/home/), [Active Perception and Cognition (rolfslab)](https://rolfslab.org/), and [Science of Intelligence](https://www.scienceofintelligence.de/).
+
 ## Install
 
 This package has the following dependencies
@@ -40,8 +42,15 @@ pip3 install torch torchaudio torchvision opencv-python
 
 ## Run
 
-Simply run the `motion_energy_split_kernel.py` script, and this will show 3 visualization windows. An animation of the visualization is shown below.
-**TODO.**
+Simply run the `motion_energy_split_kernel.py` script with a camera attached to your PC. You will see several visualization screens as shown below. 
+
+![Motion energy with static camera](docs/static_camera_animation.gif)
+
+Bottom-right window visualizes motion energy. The colors here indicate motion direction. The colors are encoded as shown in the color wheel on top-right.
+
+You may also move the camera, e.g., to simulate fixational (drift) eye movements. An example is shown below.
+
+![Motion energy with moving camera](docs/moving_camera_animation.gif)
 
 Additional options can be specified to `motion_energy_split_kernel.py` to change its behavior. The available options and its usage are provided below:
 ```
@@ -63,3 +72,9 @@ optional arguments:
                         tries to accelerate compute with NVIDIA CUDA instead of running on CPU. If your computer does not have a supporting GPU, CPU will be used as a fallback.
   -v, --verbose         print extra information on the command line
 ```
+
+To exit the program, press ESC key.
+
+### Change parameters of spatiotemporal energy model
+
+You can also change the spatial or temporal aspects of the model. Such parameters are found in the constructor of class `MotionEnergy`. For example, you may specify additional spatial kernels with different orientations at [L123](motion_energy_split_kernel.py#L123).
