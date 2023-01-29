@@ -2,6 +2,8 @@
 
 An efficient, real-time implementation of Adelson's [spatiotemporal energy model](https://pubmed.ncbi.nlm.nih.gov/3973762/). A fun use case for this tool is to verify motion perception on a number of visual phenomena such as [“Stepping feet” Motion Illusion](https://michaelbach.de/ot/mot-feetLin/index.html), [Pinna-Brelstaff Illusion](https://michaelbach.de/ot/mot-PinnaBrelstaff/index.html), [“Spine drift” illusion](https://michaelbach.de/ot/mot-spineDrift/index.html) etc. This can be done by placing an external webcam in front of a display showing the illusions, and optionally moving the webcam to resemble eye movements.
 
+An online version of this tool (with reduced functionality) is available at [https://oxidification.com/a/motion_perception_tool/](https://oxidification.com/a/motion_perception_tool/).
+
 This code accompanies the paper TODO link.
 ```
 TODO: BibTeX citation
