@@ -4,9 +4,12 @@ An efficient, real-time implementation of Adelson's [spatiotemporal energy model
 
 An online version of this tool (with reduced functionality) is available at [https://oxidification.com/a/motion_perception_tool/](https://oxidification.com/a/motion_perception_tool/).
 
-This code accompanies the paper TODO link.
+This code accompanies [this paper](https://journals.sagepub.com/doi/10.1177/20416695231159182):
 ```
-TODO: BibTeX citation
+Battaje, A., Brock, O., & Rolfs, M. (2023).
+An interactive motion perception tool for kindergarteners (and vision scientists).
+i-Perception, 14(2), 1–6.
+https://doi.org/10.1177/20416695231159182
 ```
 
 Work done at [Robotics and Biology Laboratory](https://www.robotics.tu-berlin.de/menue/home/), [Active Perception and Cognition (rolfslab)](https://rolfslab.org/), and [Science of Intelligence](https://www.scienceofintelligence.de/).
